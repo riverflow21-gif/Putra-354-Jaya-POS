@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#2E7D32" />
+  <meta name="description" content="Katalog digital dan kasir harian toko Putra 354 Jaya." />
+  <title>Putra 354 Jaya — Kasir & Katalog</title>
+
+  <!-- Font: Plus Jakarta Sans (teks) + IBM Plex Mono (struk) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
+
+  <!-- Ikon: Lucide -->
+  <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js"></script>
+
+  <!-- Manifest diisi dinamis oleh app.js (ikon digambar via Canvas) -->
+  <link id="manifestLink" rel="manifest" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body data-view="pos">
+  <div class="app">
+
+    <!-- ================= KEPALA APLIKASI ================= -->
+    <header class="topbar">
+      <div class="topbar-id">
+        <h1 id="storeName">Putra 354 Jaya</h1>
+        <p id="storeAddr"><i data-lucide="map-pin"></i><span>Atur alamat di tab Pengaturan</span></p>
+      </div>
+      <div class="topbar-actions">
+        <button id="installBtn" class="chip-btn hidden" type="button">
+          <i data-lucide="smartphone"></i>Instal App
+        </button>
+        <span id="netChip" class="net-chip"><i data-lucide="wifi-off"></i><span>Mode Demo</span></span>
+      </div>
+    </header>
+
+    <!-- Banner Mode Demo (hilang otomatis saat Sheets terhubung) -->
+    <div id="demoBanner" class="demo-banner hidden">
+      <i data-lucide="info"></i>
+      <p><strong>Mode Demo.</strong> Data hanya tersimpan di perangkat ini. Hubungkan Google Sheets agar tersimpan permanen.</p>
+      <button id="demoBannerBtn" type="button">Hubungkan</button>
+    </div>
+
+    <main class="main">
+
+      <!-- ================= VIEW 1: KASIR ================= -->
+      <section id="view-pos" class="view active">
+        <div class="search-wrap">
+          <i data-lucide="search"></i>
+          <input id="posSearch" type="search" placeholder="Cari nama produk…" autocomplete="off" />
+        </div>
+        <div class="pos-head"><span id="posCount">0 produk</span></div>
+
+        <div id="posGrid" class="pos-grid"></div>
+
+        <div id="posEmpty" class="empty hidden">
+          <svg class="empty-art" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 20h48l-4.5 30a5 5 0 0 1-5 4.5h-29a5 5 0 0 1-5-4.5L8 20z"/>
+            <path d="M22 20v-7a10 10 0 0 1 20 0v7"/>
+          </svg>
+          <h3 id="emptyTitle">Belum ada produk</h3>
+          <p id="emptyText"></p>
+          <button id="emptyGoCatalog" class="btn btn-primary" type="button"><i data-lucide="package"></i>Buka Katalog</button>
+        </div>
+      </section>
+
+      <!-- ================= VIEW 2: DETAIL PRODUK (V2) ================= -->
+      <!-- Dibuka saat kartu produk di halaman Kasir diketuk (bukan tombol "+") -->
+      <section id="view-product" class="view">
+        <div class="detail-top">
+          <button id="btnBackDetail" class="icon-btn" type="button" title="Kembali"><i data-lucide="arrow-left"></i></button>
+          <h2>Detail Produk</h2>
+        </div>
+
+        <div id="detailGallery" class="gallery"></div>
+        <div id="detailDots" class="gallery-dots"></div>
+
+        <div class="card detail-card">
+          <span id="dpCat" class="p-cat detail-cat"></span>
+          <h3 id="dpName" class="detail-name"></h3>
+          <div id="dpPrice" class="detail-price"></div>
+          <p id="dpDesc" class="detail-desc"></p>
+          <button id="dpAddBtn" class="btn btn-primary btn-lg" type="button"><i data-lucide="plus"></i> Tambah ke Keranjang</button>
+        </div>
+      </section>
+
+      <!-- ================= VIEW 3: KATALOG ================= -->
+      <section id="view-catalog" class="view">
+        <div class="section-head">
+          <h2>Katalog Produk</h2>
+          <button id="addProductBtn" class="btn btn-primary" type="button"><i data-lucide="plus"></i>Tambah Produk</button>
+        </div>
+        <div id="catalogList" class="catalog-list"></div>
+        <div id="catalogEmpty" class="empty hidden">
+          <svg class="empty-art" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="10" y="10" width="44" height="44" rx="6"/>
+            <path d="M10 26h44M26 26v28"/>
+          </svg>
+          <h3>Katalog masih kosong</h3>
+          <p>Ketuk “Tambah Produk” untuk memasukkan barang pertama Anda.</p>
+        </div>
+      </section>
+
+      <!-- ================= VIEW 4: PENGATURAN ================= -->
+      <section id="view-settings" class="view">
+        <div class="section-head"><h2>Pengaturan</h2></div>
+
+        <form id="setForm" class="card settings" autocomplete="off">
+          <h3><i data-lucide="store"></i> Identitas Toko</h3>
+          <p class="hint">Identitas ini tampil di kepala aplikasi dan pada struk transaksi.</p>
+          <label class="field"><span>Nama Toko</span>
+            <input id="setName" maxlength="40" placeholder="Putra 354 Jaya" />
+          </label>
+          <label class="field"><span>Alamat</span>
+            <input id="setAddr" maxlength="80" placeholder="Jl. Raya No. 354, …" />
+          </label>
+          <label class="field"><span>Nomor Telepon / WhatsApp</span>
+            <input id="setPhone" inputmode="tel" maxlength="20" placeholder="08xx-xxxx-xxxx" />
+          </label>
+
+          <h3 class="mt"><i data-lucide="plug"></i> Database Google Sheets</h3>
+          <p class="hint">Tempel URL Web App dari Google Apps Script (panduan ada di bawah kode). Kosongkan untuk tetap memakai Mode Demo.</p>
+          <label class="field"><span>URL Web App Apps Script</span>
+            <input id="setScriptUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" />
+          </label>
+          <div class="row-btns">
+            <button id="btnTestConn" class="btn btn-ghost" type="button"><i data-lucide="plug"></i> Uji Koneksi</button>
+            <button id="btnSync" class="btn btn-ghost" type="button"><i data-lucide="refresh-cw"></i> Sinkronkan</button>
+          </div>
+          <div id="testStatus" class="conn-status"></div>
+          <button type="submit" class="btn btn-primary btn-lg"><i data-lucide="check"></i> Simpan Pengaturan</button>
+        </form>
+
+        <div class="card stats">
+          <div class="stat"><b id="statProducts">0</b><span>Produk</span></div>
+          <div class="stat"><b id="statTrx">0</b><span>Transaksi (lokal)</span></div>
+          <div class="stat"><b>v2.0</b><span>Versi</span></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= BAR KERANJANG MENGAPUNG ================= -->
+    <button id="cartBar" class="cart-bar hidden" type="button">
+      <span class="cart-bar-count" id="cartBarCount">0</span>
+      <span class="cart-bar-label">Lihat Keranjang</span>
+      <span class="cart-bar-total" id="cartBarTotal">Rp0</span>
+    </button>
+
+    <!-- ================= TAB BAR BAWAH ================= -->
+    <nav class="tabbar">
+      <button class="tab-btn active" data-view="pos" type="button"><i data-lucide="shopping-basket"></i><span>Kasir</span></button>
+      <button class="tab-btn" data-view="catalog" type="button"><i data-lucide="package"></i><span>Katalog</span></button>
+      <button class="tab-btn" data-view="settings" type="button"><i data-lucide="settings"></i><span>Pengaturan</span></button>
+    </nav>
+  </div>
+
+  <!-- ================= SHEET KERANJANG ================= -->
+  <div id="sheetBackdrop" class="backdrop"></div>
+  <section id="cartSheet" class="sheet" role="dialog" aria-label="Keranjang belanja">
+    <div class="sheet-grip"></div>
+    <header class="sheet-head">
+      <h3><i data-lucide="shopping-basket"></i> Keranjang</h3>
+      <div>
+        <button id="btnClearCart" class="icon-btn danger" type="button" title="Kosongkan keranjang"><i data-lucide="trash-2"></i></button>
+        <button id="btnCloseCart" class="icon-btn" type="button" title="Tutup"><i data-lucide="x"></i></button>
+      </div>
+    </header>
+    <div id="cartItems" class="cart-items"></div>
+    <footer class="sheet-foot">
+      <div class="cart-total-row"><span>Total Belanja</span><strong id="cartTotal">Rp0</strong></div>
+      <button id="btnCheckout" class="btn btn-primary btn-lg" type="button"><i data-lucide="check"></i> Bayar &amp; Selesai</button>
+    </footer>
+  </section>
+
+  <!-- ================= MODAL UBAH HARGA (V2) ================= -->
+  <!-- Untuk memberi harga khusus ke pelanggan tertentu langsung dari keranjang -->
+  <div id="priceModal" class="modal" role="dialog" aria-label="Ubah harga item">
+    <div class="modal-card modal-sm">
+      <h3 class="pm-title">Ubah Harga</h3>
+      <p id="pmName" class="muted"></p>
+      <label class="field"><span>Harga Khusus (Rp)</span>
+        <input id="pmPrice" inputmode="numeric" placeholder="0" />
+      </label>
+      <p id="pmHint" class="hint"></p>
+      <div class="modal-actions">
+        <button id="pmCancel" class="btn btn-ghost" type="button">Batal</button>
+        <button id="pmSave" class="btn btn-primary" type="button">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL FORM PRODUK ================= -->
+  <div id="productModal" class="modal" role="dialog" aria-label="Form produk">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h3 id="pfTitle">Tambah Produk</h3>
+        <button id="btnCancelProduct" class="icon-btn" type="button" title="Tutup"><i data-lucide="x"></i></button>
+      </header>
+      <form id="productForm" autocomplete="off">
+        <input type="hidden" id="pfId" />
+
+        <!-- (V2) Multi-foto: pratinjau & tile tambah dirender oleh app.js -->
+        <div class="photo-box" id="pfPhotoBox">
+          <div id="pfPhotoThumbs" class="photo-thumbs"></div>
+        </div>
+        <input type="file" id="pfPhotoInput" accept="image/png,image/jpeg" multiple class="visually-hidden" />
+
+        <label class="field"><span>Nama Produk *</span>
+          <input id="pfName" required maxlength="60" placeholder="cth. Beras Premium 5 kg" />
+        </label>
+        <label class="field"><span>Kategori</span>
+          <input id="pfCategory" list="categoryList" maxlength="30" placeholder="cth. Sembako" />
+          <datalist id="categoryList"></datalist>
+        </label>
+        <label class="field"><span>Harga (Rp) *</span>
+          <input id="pfPrice" required inputmode="numeric" placeholder="0" />
+        </label>
+        <label class="field"><span>Keterangan</span>
+          <textarea id="pfDesc" rows="2" maxlength="140" placeholder="Opsional"></textarea>
+        </label>
+
+        <button type="submit" id="btnSaveProduct" class="btn btn-primary btn-lg"><i data-lucide="check"></i> Simpan Produk</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL KONFIRMASI ================= -->
+  <div id="confirmModal" class="modal" role="alertdialog">
+    <div class="modal-card modal-sm">
+      <h3 id="confirmTitle">Yakin?</h3>
+      <p id="confirmText" class="muted"></p>
+      <div class="modal-actions">
+        <button id="confirmNo" class="btn btn-ghost" type="button">Batal</button>
+        <button id="confirmYes" class="btn btn-danger" type="button">Hapus</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL STRUK ================= -->
+  <div id="receiptModal" class="modal" role="dialog" aria-label="Struk transaksi">
+    <div class="modal-card modal-sm">
+      <div id="receiptBody" class="receipt"></div>
+      <div class="modal-actions">
+        <button id="btnCopyReceipt" class="btn btn-ghost" type="button"><i data-lucide="copy"></i> Salin</button>
+        <button id="btnWaShare" class="btn btn-wa" type="button"><i data-lucide="share-2"></i> WhatsApp</button>
+      </div>
+      <button id="btnDoneReceipt" class="btn btn-primary btn-lg" type="button">Transaksi Selesai</button>
+    </div>
+  </div>
+
+  <!-- ================= LOADING & TOAST ================= -->
+  <div id="loadingOverlay" class="loading">
+    <div class="spinner"></div>
+    <p id="loadingText">Memproses…</p>
+  </div>
+  <div id="toastWrap" class="toast-wrap"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
