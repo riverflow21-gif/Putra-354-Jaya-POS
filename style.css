@@ -1,5 +1,5 @@
 /* ==========================================================================
-   PUTRA 354 JAYA — POS & KATALOG (v2)
+   PUTRA 354 JAYA — POS & KATALOG (v2.1)
    style.css — seluruh tampilan aplikasi (mobile-first)
    Palet: dasar #F8F9FA · aksi hijau #2E7D32 · teks gelap #1B1F1C
    ========================================================================== */
@@ -393,7 +393,7 @@ body[data-view="settings"] #demoBanner{ display:none; }
 .field input:focus, .field textarea:focus{ border-color:var(--green); box-shadow:0 0 0 3px var(--green-tint); }
 .field input::placeholder, .field textarea::placeholder{ color:var(--ink-3); }
 
-/* Kotak unggah foto — (V2) multi-foto: pratinjau grid + tile tambah */
+/* Kotak unggah foto — multi-foto: pratinjau grid + tile tambah */
 .photo-box{
   border:1.5px dashed var(--line); background:var(--bg);
   border-radius:var(--radius); padding:10px; margin-bottom:14px;
@@ -510,9 +510,7 @@ body[data-view="settings"] #demoBanner{ display:none; }
 .toast.err .toast-dot{ background:#FF8A80; }
 .toast.info .toast-dot{ background:#FFD54F; }
 
-/* ==========================================================================
-   18. HALAMAN DETAIL PRODUK (V2) — galeri swipe + unduh JPG
-   ========================================================================== */
+/* ---------- 18. Halaman detail produk — galeri swipe + unduh JPG ---------- */
 .detail-top{ display:flex; align-items:center; gap:10px; margin:20px 0 14px; }
 .detail-top h2{ margin:0; font-size:17px; font-weight:800; }
 
@@ -521,9 +519,9 @@ body[data-view="settings"] #demoBanner{ display:none; }
   scroll-snap-type:x mandatory;
   border-radius:var(--radius); border:1px solid var(--line);
   background:var(--green-tint);
-  scrollbar-width:none;                 /* sembunyikan scrollbar (Firefox) */
+  scrollbar-width:none;
 }
-.gallery::-webkit-scrollbar{ display:none; }  /* sembunyikan scrollbar (Chrome) */
+.gallery::-webkit-scrollbar{ display:none; }
 .gallery-slide{
   flex:0 0 100%; position:relative; scroll-snap-align:center;
   aspect-ratio:1/1;
@@ -563,9 +561,7 @@ body[data-view="settings"] #demoBanner{ display:none; }
 .detail-desc.placeholder{ color:var(--ink-3); font-style:italic; }
 .detail-card .btn-lg{ margin-top:16px; }
 
-/* ==========================================================================
-   19. KERANJANG — HARGA KHUSUS (V2)
-   ========================================================================== */
+/* ---------- 19. Keranjang — harga khusus ---------- */
 .ci-price-row{ display:flex; align-items:center; gap:6px; margin-top:2px; min-width:0; }
 .ci-price.custom{ color:var(--green-dark); font-weight:700; }
 .ci-old{ color:var(--ink-3); font-size:11px; font-variant-numeric:tabular-nums; }
@@ -580,3 +576,19 @@ body[data-view="settings"] #demoBanner{ display:none; }
 
 #priceModal .pm-title{ margin:0 0 6px; font-size:16.5px; font-weight:800; }
 #priceModal .hint{ margin:2px 0 0; font-size:12.5px; color:var(--ink-3); }
+
+/* ==========================================================================
+   20. v2.1 — LOGO POJOK ATAS & TOMBOL BAGIKAN NOTA
+   ========================================================================== */
+.topbar-id{
+  display:flex; align-items:center; gap:11px; min-width:0;
+}
+.app-logo{
+  width:44px; height:44px; flex:none; border-radius:10px;
+}
+.topbar-text{ min-width:0; }
+
+.modal-actions.share-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:10px;
+}
+.modal-actions.share-grid .btn{ flex:none; }
