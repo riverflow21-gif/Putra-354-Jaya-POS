@@ -1,4 +1,4 @@
-const CACHE = 'p354-v2'; // (v2) naikkan versi cache agar perangkat mengunduh berkas baru, bukan cache lama
+const CACHE = 'p354-v2.1'; // (v2.1) naikkan versi cache agar perangkat mengunduh berkas baru, bukan cache lama
 const CORE = ['./', './index.html', './style.css', './app.js',
   'https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js',
   'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap'];
