@@ -15,7 +15,7 @@
   <!-- Ikon: Lucide -->
   <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js"></script>
 
-  <!-- Manifest diisi dinamis oleh app.js (ikon digambar via Canvas) -->
+  <!-- Manifest diisi dinamis oleh app.js (logo digambar via Canvas) -->
   <link id="manifestLink" rel="manifest" />
 
   <link rel="stylesheet" href="style.css" />
@@ -25,9 +25,13 @@
 
     <!-- ================= KEPALA APLIKASI ================= -->
     <header class="topbar">
+      <!-- (v2.1) logo toko di pojok kiri atas -->
       <div class="topbar-id">
-        <h1 id="storeName">Putra 354 Jaya</h1>
-        <p id="storeAddr"><i data-lucide="map-pin"></i><span>Atur alamat di tab Pengaturan</span></p>
+        <img id="appLogo" class="app-logo" alt="Logo toko" />
+        <div class="topbar-text">
+          <h1 id="storeName">Putra 354 Jaya</h1>
+          <p id="storeAddr"><i data-lucide="map-pin"></i><span>Atur alamat di tab Pengaturan</span></p>
+        </div>
       </div>
       <div class="topbar-actions">
         <button id="installBtn" class="chip-btn hidden" type="button">
@@ -67,8 +71,7 @@
         </div>
       </section>
 
-      <!-- ================= VIEW 2: DETAIL PRODUK (V2) ================= -->
-      <!-- Dibuka saat kartu produk di halaman Kasir diketuk (bukan tombol "+") -->
+      <!-- ================= VIEW 2: DETAIL PRODUK ================= -->
       <section id="view-product" class="view">
         <div class="detail-top">
           <button id="btnBackDetail" class="icon-btn" type="button" title="Kembali"><i data-lucide="arrow-left"></i></button>
@@ -137,7 +140,7 @@
         <div class="card stats">
           <div class="stat"><b id="statProducts">0</b><span>Produk</span></div>
           <div class="stat"><b id="statTrx">0</b><span>Transaksi (lokal)</span></div>
-          <div class="stat"><b>v2.0</b><span>Versi</span></div>
+          <div class="stat"><b>v2.1</b><span>Versi</span></div>
         </div>
       </section>
     </main>
@@ -175,8 +178,7 @@
     </footer>
   </section>
 
-  <!-- ================= MODAL UBAH HARGA (V2) ================= -->
-  <!-- Untuk memberi harga khusus ke pelanggan tertentu langsung dari keranjang -->
+  <!-- ================= MODAL UBAH HARGA ================= -->
   <div id="priceModal" class="modal" role="dialog" aria-label="Ubah harga item">
     <div class="modal-card modal-sm">
       <h3 class="pm-title">Ubah Harga</h3>
@@ -202,7 +204,6 @@
       <form id="productForm" autocomplete="off">
         <input type="hidden" id="pfId" />
 
-        <!-- (V2) Multi-foto: pratinjau & tile tambah dirender oleh app.js -->
         <div class="photo-box" id="pfPhotoBox">
           <div id="pfPhotoThumbs" class="photo-thumbs"></div>
         </div>
@@ -243,9 +244,12 @@
   <div id="receiptModal" class="modal" role="dialog" aria-label="Struk transaksi">
     <div class="modal-card modal-sm">
       <div id="receiptBody" class="receipt"></div>
-      <div class="modal-actions">
+      <!-- (v2.1) tombol WhatsApp diganti bagikan serbaguna: teks / foto / PDF -->
+      <div class="modal-actions share-grid">
         <button id="btnCopyReceipt" class="btn btn-ghost" type="button"><i data-lucide="copy"></i> Salin</button>
-        <button id="btnWaShare" class="btn btn-wa" type="button"><i data-lucide="share-2"></i> WhatsApp</button>
+        <button id="btnShareText" class="btn btn-ghost" type="button"><i data-lucide="share-2"></i> Teks</button>
+        <button id="btnSharePhoto" class="btn btn-ghost" type="button"><i data-lucide="image"></i> Foto</button>
+        <button id="btnSharePdf" class="btn btn-ghost" type="button"><i data-lucide="file-text"></i> PDF</button>
       </div>
       <button id="btnDoneReceipt" class="btn btn-primary btn-lg" type="button">Transaksi Selesai</button>
     </div>
