@@ -1,5 +1,5 @@
 /* ==========================================================================
-   PUTRA 354 JAYA — POS & KATALOG (v2)
+   PUTRA 354 JAYA — POS & KATALOG (v2.1)
    app.js — seluruh logika aplikasi (Vanilla JS, ES6+)
 
    Arsitektur data:
@@ -9,13 +9,14 @@
                    Apps Script menyimpannya ke Google Drive dan hanya
                    menaruh URL-nya ke Google Sheets.
 
-   Perubahan v2:
-   - Produk kini punya `images` (array URL) — `image` tetap ada sebagai
-     gambar utama untuk kompatibilitas kartu & data lama.
-   - Klik kartu produk di Kasir membuka halaman detail; tombol "+" tetap
-     langsung menambah ke keranjang.
-   - Keranjang menyimpan { qty, price } per item — price = harga khusus
-     (opsional) untuk pelanggan dengan harga beda.
+   Perubahan v2.1:
+   - Nota bisa dibagikan sebagai teks / foto / PDF ke aplikasi apa pun
+     (Web Share API; fallback: salin / unduh).
+   - Kalimat penutup nota diganti.
+   - Tombol kembali HP menutup layer teratas (sheet/modal/halaman detail),
+     bukan keluar dari aplikasi (History API).
+   - Logo perisai "Putra 354 Jaya" digambar via Canvas: dipakai untuk
+     ikon aplikasi (manifest), logo pojok kiri atas, dan nota foto/PDF.
    ========================================================================== */
 'use strict';
 
@@ -51,15 +52,16 @@ const state = {
   online: navigator.onLine,
 };
 
-// Status foto pada form produk (V2: array multi-foto)
+// Status foto pada form produk (multi-foto)
 let pfPhotos = [];        // daftar foto di form: campuran URL (lama) & dataURL (baru)
 let pfPhotosDirty = false; // apakah daftar foto diubah sejak form dibuka
 
 let deferredPrompt = null;      // event install PWA yang ditunda
 let confirmCallback = null;     // aksi yang menunggu konfirmasi hapus
 let currentReceiptText = '';    // teks struk untuk dibagikan / disalin
-let detailProductId = null;     // produk yang sedang dibuka di halaman detail (V2)
-let priceEditId = null;         // item keranjang yang sedang diedit harganya (V2)
+let currentReceiptData = null;  // (v2.1) data struk aktif untuk dibagikan sebagai foto/PDF
+let detailProductId = null;     // produk yang sedang dibuka di halaman detail
+let priceEditId = null;         // item keranjang yang sedang diedit harganya
 
 /* ==========================================================================
    2. UTILITAS UMUM
@@ -73,16 +75,16 @@ const initialOf   = s => (String(s || '?').trim()[0] || '?').toUpperCase();
 const uid         = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const isDemo      = () => !state.settings.scriptUrl;
 
-// (V2) Semua gambar milik produk — fallback ke `image` tunggal (data lama v1)
+// Semua gambar milik produk — fallback ke `image` tunggal (data lama v1)
 const imagesOf = p => {
   const arr = Array.isArray(p && p.images) ? p.images.filter(Boolean) : [];
   return arr.length ? arr : (p && p.image ? [p.image] : []);
 };
 
-// (V2) Harga satuan item keranjang: harga khusus bila ada, selain itu harga normal
+// Harga satuan item keranjang: harga khusus bila ada, selain itu harga normal
 const unitPriceOf = (entry, p) => (entry.price != null ? entry.price : p.price);
 
-// (V2) Nama berkas unduhan yang aman, cth: "beras-premium-5-kg-1.jpg"
+// Nama berkas unduhan yang aman, cth: "beras-premium-5-kg-1.jpg"
 const slugify = s =>
   (String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')) || 'produk';
 
@@ -131,7 +133,7 @@ function loadLocal(){
   if (s) state.settings = { ...state.settings, ...s };
   state.products = lsGet(LS.products, []);
 
-  // (V2) Keranjang kini berisi { qty, price } — nilai angka dari v1 dimigrasi otomatis
+  // Keranjang berisi { qty, price } — nilai angka dari v1 dimigrasi otomatis
   state.cart = new Map();
   lsGet(LS.cart, []).forEach(([id, v]) => {
     const entry = typeof v === 'number' ? { qty: v, price: undefined } : v;
@@ -186,7 +188,7 @@ async function syncFromServer(){
   try {
     const res = await api('getProducts');
     state.products = (res.data || []).map(p => {
-      // (V2) kolom Galeri berisi JSON array URL — data lama (tanpa galeri) tetap aman
+      // kolom Galeri berisi JSON array URL — data lama (tanpa galeri) tetap aman
       const imgs = Array.isArray(p.images) ? p.images.map(String).filter(Boolean) : [];
       return {
         id:       String(p.id || ''),
@@ -298,8 +300,8 @@ function renderPOS(){
   refreshIcons();
 }
 
-// (V2) kartu memakai data-open: ketukan pada kartu membuka detail,
-//      ketukan pada tombol "+" (span .p-add) tetap menambah ke keranjang
+// kartu memakai data-open: ketukan pada kartu membuka detail,
+// ketukan pada tombol "+" (span .p-add) tetap menambah ke keranjang
 function productCardHTML(p){
   const entry = state.cart.get(p.id);
   const qty = entry ? entry.qty : 0;
@@ -351,15 +353,14 @@ function catalogRowHTML(p){
 }
 
 /* ==========================================================================
-   7B. HALAMAN DETAIL PRODUK (V2)
-   Dibuka dari kartu di halaman Kasir: galeri foto (swipe), deskripsi,
-   harga, dan tombol tambah ke keranjang. Setiap foto bisa diunduh JPG.
+   7B. HALAMAN DETAIL PRODUK
    ========================================================================== */
 function openProductDetail(id){
   const p = state.products.find(x => x.id === id);
   if (!p) return;
   detailProductId = id;
   renderProductDetail(p);
+  pushLayer();                    // (v2.1) tombol kembali HP kembali ke Kasir
   switchView('product');
 }
 
@@ -434,7 +435,7 @@ async function downloadImage(url, filename){
 
 /* ==========================================================================
    8. KERANJANG BELANJA (state real-time via manipulasi DOM)
-   (V2) tiap entri: { qty, price } — price = harga khusus opsional
+   tiap entri: { qty, price } — price = harga khusus opsional
    ========================================================================== */
 function cartCount(){
   return [...state.cart.values()].reduce((a, e) => a + e.qty, 0);
@@ -482,8 +483,8 @@ function updateCartUI(bump = false){
     bar.classList.add('bump');
   }
   renderCartItems();
-  // (V2) perbarui badge kartu juga saat berada di halaman detail produk,
-  //      agar badge tidak basi ketika pengguna kembali ke Kasir
+  // perbarui badge kartu juga saat berada di halaman detail produk,
+  // agar badge tidak basi ketika pengguna kembali ke Kasir
   if (state.view === 'pos' || state.view === 'product') renderPOS();
 }
 
@@ -521,22 +522,25 @@ function renderCartItems(){
 }
 
 function openCartSheet(){
+  pushLayer();                      // (v2.1) daftarkan ke tombol kembali HP
   $('#sheetBackdrop').classList.add('show');
   $('#cartSheet').classList.add('show');
   document.body.classList.add('no-scroll');
 }
 function closeCartSheet(){
+  popLayer();                       // (v2.1) consume entri history-nya
   $('#sheetBackdrop').classList.remove('show');
   $('#cartSheet').classList.remove('show');
   document.body.classList.remove('no-scroll');
 }
 
-/* ---------- (V2) Modal ubah harga khusus ---------- */
+/* ---------- Modal ubah harga khusus ---------- */
 function openPriceModal(id){
   const p = state.products.find(x => x.id === id);
   const entry = state.cart.get(id);
   if (!p || !entry) return;
   priceEditId = id;
+  pushLayer();                      // (v2.1) daftarkan ke tombol kembali HP
   $('#pmName').textContent = p.name;
   $('#pmHint').textContent = `Harga normal: ${rupiah(p.price)}. Kosongkan lalu simpan untuk kembali ke harga normal.`;
   const unit = unitPriceOf(entry, p);
@@ -547,6 +551,7 @@ function openPriceModal(id){
 }
 
 function closePriceModal(){
+  popLayer();                       // (v2.1) consume entri history-nya
   $('#priceModal').classList.remove('show');
   // keranjang biasanya masih terbuka di belakang — jangan buka kunci scrollnya
   if (!$('#cartSheet').classList.contains('show') &&
@@ -614,6 +619,8 @@ async function checkout(){
 }
 
 function showReceipt(r){
+  currentReceiptData = r;           // (v2.1) simpan untuk share foto/PDF
+  pushLayer();                      // (v2.1) daftarkan ke tombol kembali HP
   $('#receiptBody').innerHTML = `
     <div class="r-store">
       <b>${escapeHtml(r.store.name)}</b>
@@ -632,14 +639,14 @@ function showReceipt(r){
     `).join('')}
     <div class="r-sep"></div>
     <div class="r-total"><span>TOTAL</span><span>${rupiah(r.total)}</span></div>
-    <div class="r-foot">Terima kasih atas kunjungan Anda.</div>
+    <div class="r-foot">alhamdulillahi jaza kumullahu khoiro</div>
   `;
   currentReceiptText = receiptText(r);
   $('#receiptModal').classList.add('show');
   document.body.classList.add('no-scroll');
 }
 
-// versi teks polos untuk WhatsApp / clipboard
+// versi teks polos untuk dibagikan / disalin
 function receiptText(r){
   const line = '------------------------------';
   return [
@@ -650,11 +657,12 @@ function receiptText(r){
     ...r.items.map(i => `${i.qty}x ${i.name} = ${rupiah(i.subtotal)}`),
     line,
     `TOTAL: ${rupiah(r.total)}`,
-    'Terima kasih telah berbelanja.',
+    'alhamdulillahi jaza kumullahu khoiro',
   ].filter(Boolean).join('\n');
 }
 
 function closeReceipt(){
+  popLayer();                       // (v2.1) consume entri history-nya
   $('#receiptModal').classList.remove('show');
   document.body.classList.remove('no-scroll');
 }
@@ -675,11 +683,260 @@ async function copyReceipt(){
 }
 
 /* ==========================================================================
+   9B. BAGIKAN NOTA — TEKS / FOTO / PDF (v2.1)
+   Foto dirender ke Canvas (dengan logo di pojok atas), PDF dibungkus
+   dari JPEG hasil Canvas tanpa library tambahan. Distribusi memakai
+   Web Share API agar bisa dikirim ke aplikasi apa pun; fallback: unduh.
+   ========================================================================== */
+
+// unduh Blob sebagai berkas (fallback bila Web Share file tidak tersedia)
+function saveBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// bagikan nota sebagai teks ke aplikasi apa pun
+async function shareReceiptText(){
+  if (navigator.share){
+    try {
+      await navigator.share({ title: 'Nota Transaksi', text: currentReceiptText });
+      return;
+    } catch (e){
+      if (e && e.name === 'AbortError') return; // pengguna membatalkan
+    }
+  }
+  await copyReceipt(); // fallback: salin ke clipboard
+}
+
+// bagikan nota sebagai foto (JPG) atau PDF
+async function shareReceiptFile(kind){
+  if (!currentReceiptData) return;
+  const r = currentReceiptData;
+  let blob, filename;
+  try {
+    setLoading(true, 'Menyiapkan nota…');
+    const canvas = renderReceiptCanvas(r);
+    if (kind === 'pdf'){
+      blob = buildPdfFromJpegCanvas(canvas);
+      filename = r.id + '.pdf';
+    } else {
+      blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+      filename = r.id + '.jpg';
+    }
+  } catch (err) {
+    toast('Gagal menyiapkan nota: ' + err.message, 'err');
+    return;
+  } finally {
+    setLoading(false);
+  }
+
+  const file = new File([blob], filename, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })){
+    try {
+      await navigator.share({ files: [file], title: 'Nota Transaksi' });
+      return;
+    } catch (e){
+      if (e && e.name === 'AbortError') return; // pengguna membatalkan
+    }
+  }
+  saveBlob(blob, filename);
+  toast('Nota diunduh — kirim lewat aplikasi lain');
+}
+
+// gambar nota ke Canvas: logo di pojok atas + identitas + rincian + total
+function renderReceiptCanvas(r){
+  const W = 720, PAD = 44, LOGO = 132;
+  const F = '"Plus Jakarta Sans", Arial, sans-serif';
+  const nameFont  = `700 24px ${F}`;
+  const smallFont = `500 19px ${F}`;
+  const metaFont  = `600 17px ${F}`;
+  const maxTextW  = W - PAD * 2;
+
+  // pembungkus teks alamat agar tidak terpotong
+  const meas = document.createElement('canvas').getContext('2d');
+  const wrap = (text, font) => {
+    meas.font = font;
+    const out = [];
+    let line = '';
+    String(text).split(/\s+/).forEach(w => {
+      const t = line ? line + ' ' + w : w;
+      if (meas.measureText(t).width > maxTextW && line){ out.push(line); line = w; }
+      else line = t;
+    });
+    if (line) out.push(line);
+    return out;
+  };
+
+  const addrLines  = r.store.addr  ? wrap(r.store.addr, smallFont) : [];
+  const phoneLines = r.store.phone ? ['Telp. ' + r.store.phone] : [];
+
+  // baris item: nama + subtotal, lalu baris kecil qty x harga
+  const rows = [];
+  r.items.forEach(i => {
+    rows.push({ left: i.name, right: rupiah(i.subtotal), font: nameFont, color: '#1B1F1C', indent: 0 });
+    rows.push({ left: `${i.qty} x ${rupiah(i.price)}`, right: '', font: smallFont, color: '#8A928B', indent: 16 });
+  });
+
+  // tinggi kanvas — urutan penjumlahan persis sama dengan proses menggambar di bawah
+  const H = PAD
+    + LOGO + 34          // logo
+    + 40                 // nama toko
+    + addrLines.length  * 26 + (addrLines.length  ? 4 : 0)
+    + phoneLines.length * 26 + (phoneLines.length ? 4 : 0)
+    + 26                 // garis putus
+    + 6 + 26             // baris meta + garis putus
+    + rows.length * 34   // item
+    + 4 + 26             // garis putus
+    + 46                 // TOTAL
+    + 24                 // kalimat penutup
+    + PAD;
+
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, W, H);
+
+  const dashLine = () => {
+    ctx.strokeStyle = '#C9CFC9';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([9, 9]);
+    ctx.beginPath();
+    ctx.moveTo(PAD, y);
+    ctx.lineTo(W - PAD, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    y += 26;
+  };
+
+  let y = PAD;
+
+  // logo di pojok atas nota (v2.1)
+  ctx.save();
+  ctx.translate((W - LOGO) / 2, y);
+  drawLogo(ctx, LOGO);
+  ctx.restore();
+  y += LOGO + 34;
+
+  // identitas toko
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#1B1F1C';
+  ctx.font = `800 30px ${F}`;
+  ctx.fillText(r.store.name, W / 2, y);
+  y += 40;
+  ctx.font = smallFont;
+  ctx.fillStyle = '#5A635D';
+  addrLines.forEach(l => { ctx.fillText(l, W / 2, y); y += 26; });
+  if (addrLines.length) y += 4;
+  phoneLines.forEach(l => { ctx.fillText(l, W / 2, y); y += 26; });
+  if (phoneLines.length) y += 4;
+
+  dashLine();
+
+  // nomor nota & waktu
+  ctx.font = metaFont;
+  ctx.fillStyle = '#5A635D';
+  ctx.textAlign = 'left';
+  ctx.fillText(r.id, PAD, y);
+  ctx.textAlign = 'right';
+  ctx.fillText(r.time, W - PAD, y);
+  y += 6;
+  dashLine();
+
+  // rincian item
+  rows.forEach(row => {
+    ctx.textAlign = 'left';
+    ctx.font = row.font;
+    let left = row.left;
+    const maxLeft = maxTextW - (row.right ? ctx.measureText(row.right).width + 24 : 0) - row.indent;
+    while (ctx.measureText(left).width > maxLeft && left.length > 1) left = left.slice(0, -2);
+    if (left !== row.left) left = left.trimEnd() + '…';
+    ctx.fillStyle = row.color;
+    ctx.fillText(left, PAD + row.indent, y);
+    if (row.right){
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#1B1F1C';
+      ctx.fillText(row.right, W - PAD, y);
+    }
+    y += 34;
+  });
+  y += 4;
+  dashLine();
+
+  // total
+  ctx.textAlign = 'left';
+  ctx.font = `800 26px ${F}`;
+  ctx.fillStyle = '#1B1F1C';
+  ctx.fillText('TOTAL', PAD, y);
+  ctx.textAlign = 'right';
+  ctx.fillText(rupiah(r.total), W - PAD, y);
+  y += 46;
+
+  // kalimat penutup (v2.1)
+  ctx.textAlign = 'center';
+  ctx.font = `600 19px ${F}`;
+  ctx.fillStyle = '#5A635D';
+  ctx.fillText('alhamdulillahi jaza kumullahu khoiro', W / 2, y);
+
+  return cv;
+}
+
+// bungkus JPEG hasil Canvas menjadi berkas PDF valid (tanpa library tambahan)
+function buildPdfFromJpegCanvas(canvas){
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  const bin = atob(dataUrl.split(',')[1]);
+  const jpeg = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
+
+  const W = canvas.width, H = canvas.height;
+  const pageW = 595; // lebar A4 dalam poin
+  const pageH = Math.max(1, Math.round(pageW * H / W));
+
+  const chunks = [];
+  let len = 0;
+  const enc = new TextEncoder();
+  const addStr = s => { const b = enc.encode(s); chunks.push(b); len += b.length; };
+  const addU8  = b => { chunks.push(b); len += b.length; };
+  const off = [];
+
+  addStr('%PDF-1.4\n');
+
+  off[1] = len;
+  addStr('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  off[2] = len;
+  addStr('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+  off[3] = len;
+  addStr(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`);
+  off[4] = len;
+  addStr(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`);
+  addU8(jpeg);
+  addStr('\nendstream\nendobj\n');
+
+  const content = `q ${pageW} 0 0 ${pageH} 0 0 cm /Im0 Do Q\n`;
+  off[5] = len;
+  addStr(`5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`);
+
+  const xref = len;
+  addStr('xref\n0 6\n0000000000 65535 f \n');
+  for (let i = 1; i <= 5; i++) addStr(String(off[i]).padStart(10, '0') + ' 00000 n \n');
+  addStr(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
+/* ==========================================================================
    10. CRUD PRODUK (form modal)
-   (V2) foto: multi-upload — pfPhotos berisi campuran URL lama & dataURL baru
    ========================================================================== */
 function openProductModal(id = null){
   pfPhotosDirty = false;
+  pushLayer();                      // (v2.1) daftarkan ke tombol kembali HP
   $('#productForm').reset();
   $('#pfId').value = id || '';
 
@@ -707,11 +964,12 @@ function openProductModal(id = null){
 }
 
 function closeProductModal(){
+  popLayer();                       // (v2.1) consume entri history-nya
   $('#productModal').classList.remove('show');
   document.body.classList.remove('no-scroll');
 }
 
-// (V2) render pratinjau multi-foto + tile "tambah foto" di dalam grid
+// render pratinjau multi-foto + tile "tambah foto" di dalam grid
 function renderPhotoThumbs(){
   $('#pfPhotoThumbs').innerHTML = pfPhotos.map((src, i) => `
     <div class="photo-thumb">
@@ -750,8 +1008,7 @@ async function saveProductFlow(e){
     price,
     desc: $('#pfDesc').value.trim(),
   };
-  // (V2) null = daftar foto tidak diubah · array = daftar foto final
-  //      (bisa kosong = hapus semua; berisi dataURL baru & URL lama yang dipertahankan)
+  // null = daftar foto tidak diubah · array = daftar foto final
   const images = pfPhotosDirty ? pfPhotos.slice() : null;
 
   setLoading(true, isEdit ? 'Menyimpan perubahan…' : 'Mengunggah produk…');
@@ -799,6 +1056,7 @@ async function performDelete(id){
 }
 
 function askConfirm(title, text, yesLabel, cb){
+  pushLayer();                      // (v2.1) daftarkan ke tombol kembali HP
   $('#confirmTitle').textContent = title;
   $('#confirmText').textContent  = text;
   $('#confirmYes').textContent   = yesLabel;
@@ -807,6 +1065,7 @@ function askConfirm(title, text, yesLabel, cb){
   document.body.classList.add('no-scroll');
 }
 function closeConfirm(){
+  popLayer();                       // (v2.1) consume entri history-nya
   $('#confirmModal').classList.remove('show');
   if (!$('#productModal').classList.contains('show')){
     document.body.classList.remove('no-scroll');
@@ -894,34 +1153,161 @@ async function onTestConnection(){
    12. NAVIGASI TAB
    ========================================================================== */
 function switchView(name){
+  const prev = state.view;          // (v2.1) catat view sebelumnya
   state.view = name;
   document.body.dataset.view = name;
   $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
   window.scrollTo({ top: 0 });
+  // (v2.1) meninggalkan halaman detail lewat tab → konsumsi entri history-nya
+  if (prev === 'product' && name !== 'product') popLayer();
   if (name === 'settings') renderSettings();
 }
 
 /* ==========================================================================
-   13. PWA — manifest dinamis, ikon digambar via Canvas, service worker
+   12B. TOMBOL KEMBALI HP (v2.1)
+   Setiap layer (sheet/modal/halaman detail) mendaftarkan satu entri
+   history saat dibuka. Tombol kembali HP menutup layer teratas —
+   bukan langsung keluar dari aplikasi. Penutupan lewat UI/Esc akan
+   meng-consume entri history yang sama agar selalu sinkron.
    ========================================================================== */
+let pushedCount = 0;        // jumlah entri history yang masih tercatat
+let popGuard = 0;           // penanda popstate yang dipicu history.back() internal
+let closingFromPop = false; // true saat penutupan dipicu tombol kembali HP
+
+function pushLayer(){
+  try {
+    history.pushState({ p354: true }, '');
+    pushedCount++;
+  } catch (e) { /* lingkungan terbatas — abaikan */ }
+}
+
+function popLayer(){
+  if (closingFromPop) return;       // sudah dipop oleh tombol kembali HP
+  if (pushedCount > 0){
+    pushedCount--;
+    try {
+      popGuard++;
+      history.back();
+    } catch (e) {
+      popGuard--;
+    }
+  }
+}
+
+// menutup satu layer teratas yang sedang terbuka (dipanggil dari popstate)
+function closeTopmostLayer(){
+  if ($('#receiptModal').classList.contains('show')) closeReceipt();
+  else if ($('#confirmModal').classList.contains('show')) closeConfirm();
+  else if ($('#priceModal').classList.contains('show')) closePriceModal();
+  else if ($('#productModal').classList.contains('show')) closeProductModal();
+  else if ($('#cartSheet').classList.contains('show')) closeCartSheet();
+  else if (state.view === 'product') switchView('pos');
+}
+
+/* ==========================================================================
+   13. PWA — manifest dinamis, logo via Canvas, service worker
+   ========================================================================== */
+
+/* ---------- (v2.1) logo "Putra 354 Jaya" — digambar via Canvas ----------
+   Perisai merah bersinar kuning, teks PUTRA (putih), 354 (biru),
+   JAYA (putih). Dipakai untuk: ikon aplikasi (manifest), logo pojok
+   kiri atas, dan nota dalam bentuk foto/PDF. */
+function drawLogo(ctx, S){
+  const u = S / 512;
+  const FAM = '"Plus Jakarta Sans", "Arial Black", Arial, sans-serif';
+
+  ctx.save();
+
+  // jalur perisai (heater shield)
+  const shield = () => {
+    ctx.beginPath();
+    ctx.moveTo(54*u, 42*u);
+    ctx.quadraticCurveTo(256*u, 84*u, 458*u, 42*u);
+    ctx.bezierCurveTo(478*u, 150*u, 482*u, 255*u, 404*u, 372*u);
+    ctx.bezierCurveTo(360*u, 455*u, 305*u, 494*u, 256*u, 506*u);
+    ctx.bezierCurveTo(207*u, 494*u, 152*u, 455*u, 108*u, 372*u);
+    ctx.bezierCurveTo(30*u, 255*u, 34*u, 150*u, 54*u, 42*u);
+    ctx.closePath();
+  };
+
+  // dasar merah
+  shield();
+  ctx.fillStyle = '#E02020';
+  ctx.fill();
+
+  // sinaris kuning (terpotong bentuk perisai)
+  ctx.save();
+  shield();
+  ctx.clip();
+  ctx.fillStyle = '#FFDB00';
+  const cx = 256*u, cy = 262*u, R = 430*u, half = 7.5 * Math.PI / 180;
+  for (let i = 0; i < 12; i++){
+    const a = i * 30 * Math.PI / 180;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + R * Math.cos(a - half), cy + R * Math.sin(a - half));
+    ctx.lineTo(cx + R * Math.cos(a + half), cy + R * Math.sin(a + half));
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // garis tepi hitam
+  shield();
+  ctx.lineWidth = 14*u;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#141414';
+  ctx.stroke();
+
+  // teks dengan garis luar — urutan gambar: hitam → putih → isi warna
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const fitted = (txt, targetW, weight) => {
+    ctx.font = `${weight} 100px ${FAM}`;
+    const w = ctx.measureText(txt).width || 1;
+    return Math.max(10, Math.floor(100 * targetW / w));
+  };
+  const outlined = (txt, x, yy, font, fill, rings) => {
+    ctx.font = font;
+    rings.forEach(([col, lw]) => { ctx.lineWidth = lw*u; ctx.strokeStyle = col; ctx.strokeText(txt, x, yy); });
+    ctx.fillStyle = fill;
+    ctx.fillText(txt, x, yy);
+  };
+
+  outlined('PUTRA', 256*u, 112*u,
+    `800 ${fitted('PUTRA', 235*u, 800)}px ${FAM}`, '#FFFFFF', [['#141414', 9]]);
+
+  // spasi antar huruf JAYA (diabaikan otomatis oleh browser lama)
+  ctx.letterSpacing = Math.round(9*u) + 'px';
+  outlined('JAYA', 256*u, 372*u,
+    `800 ${fitted('JAYA', 200*u, 800)}px ${FAM}`, '#FFFFFF', [['#141414', 8]]);
+  ctx.letterSpacing = '0px';
+
+  outlined('354', 256*u, 258*u,
+    `800 ${fitted('354', 320*u, 800)}px ${FAM}`, '#1D3F9E', [['#141414', 17], ['#FFFFFF', 9]]);
+
+  ctx.restore();
+}
+
 function makeIconDataUrl(size){
   const cv = document.createElement('canvas');
   cv.width = cv.height = size;
   const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#2E7D32';
+  ctx.fillStyle = '#FFFFFF';                 // latar putih agar aman di semua launcher
   ctx.fillRect(0, 0, size, size);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,.8)';
-  ctx.font = `600 ${Math.round(size * 0.14)}px "Plus Jakarta Sans", sans-serif`;
-  ctx.fillText('PUTRA', size / 2, size * 0.40);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = `800 ${Math.round(size * 0.30)}px "Plus Jakarta Sans", sans-serif`;
-  ctx.fillText('354', size / 2, size * 0.68);
+  const inner = Math.round(size * 0.72);     // perisai + margin aman (maskable)
+  ctx.translate(Math.round((size - inner) / 2), Math.round((size - inner) / 2));
+  drawLogo(ctx, inner);
   return cv.toDataURL('image/png');
 }
 
 function initPWA(){
+  // (v2.1) logo pojok kiri atas — digambar ulang setelah font siap agar rapi
+  const setHeaderLogo = () => { $('#appLogo').src = makeIconDataUrl(96); };
+  setHeaderLogo();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(setHeaderLogo);
+
   // tunggu font termuat agar ikon konsisten — lalu pasang manifest via Blob URL
   const applyManifest = () => {
     try {
@@ -967,18 +1353,18 @@ function bindEvents(){
   // --- halaman kasir ---
   $('#posSearch').addEventListener('input', renderPOS);
   $('#posGrid').addEventListener('click', e => {
-    // (V2) tombol "+" pada kartu → langsung masuk keranjang
+    // tombol "+" pada kartu → langsung masuk keranjang
     if (e.target.closest('.p-add')){
       const card = e.target.closest('.p-card');
       if (card) addToCart(card.dataset.open);
       return;
     }
-    // (V2) area kartu lainnya → buka halaman detail produk
+    // area kartu lainnya → buka halaman detail produk
     const card = e.target.closest('[data-open]');
     if (card) openProductDetail(card.dataset.open);
   });
 
-  // --- (V2) halaman detail produk ---
+  // --- halaman detail produk ---
   $('#btnBackDetail').addEventListener('click', () => switchView('pos'));
   $('#dpAddBtn').addEventListener('click', () => {
     if (detailProductId) addToCart(detailProductId);
@@ -1022,7 +1408,7 @@ function bindEvents(){
     });
   });
   $('#cartItems').addEventListener('click', e => {
-    // (V2) tombol ubah harga khusus
+    // tombol ubah harga khusus
     const pr = e.target.closest('[data-price]');
     if (pr){ openPriceModal(pr.dataset.price); return; }
 
@@ -1033,7 +1419,7 @@ function bindEvents(){
   });
   $('#btnCheckout').addEventListener('click', checkout);
 
-  // --- (V2) modal ubah harga ---
+  // --- modal ubah harga ---
   $('#pmPrice').addEventListener('input', e => {
     const n = parseNumber(e.target.value);
     e.target.value = n ? n.toLocaleString('id-ID') : '';
@@ -1085,7 +1471,7 @@ function bindEvents(){
     e.target.value = n ? n.toLocaleString('id-ID') : '';
   });
 
-  // (V2) unggah multi-foto — kompres satu per satu lalu tampilkan pratinjau
+  // unggah multi-foto — kompres satu per satu lalu tampilkan pratinjau
   $('#pfPhotoBox').addEventListener('click', () => $('#pfPhotoInput').click());
   $('#pfPhotoInput').addEventListener('change', async e => {
     const files = [...e.target.files];
@@ -1125,9 +1511,10 @@ function bindEvents(){
   });
 
   // --- struk ---
-  $('#btnWaShare').addEventListener('click', () => {
-    window.open('https://wa.me/?text=' + encodeURIComponent(currentReceiptText), '_blank');
-  });
+  // (v2.1) bagikan serbaguna: teks / foto / PDF ke aplikasi apa pun
+  $('#btnShareText').addEventListener('click', shareReceiptText);
+  $('#btnSharePhoto').addEventListener('click', () => shareReceiptFile('photo'));
+  $('#btnSharePdf').addEventListener('click', () => shareReceiptFile('pdf'));
   $('#btnCopyReceipt').addEventListener('click', copyReceipt);
   $('#btnDoneReceipt').addEventListener('click', closeReceipt);
 
@@ -1144,6 +1531,17 @@ function bindEvents(){
     else if ($('#priceModal').classList.contains('show'))    closePriceModal();
     else if ($('#productModal').classList.contains('show'))  closeProductModal();
     else if ($('#cartSheet').classList.contains('show'))     closeCartSheet();
+  });
+
+  // --- (v2.1) tombol kembali HP: tutup layer teratas, bukan keluar aplikasi ---
+  window.addEventListener('popstate', () => {
+    if (popGuard > 0){ popGuard--; return; }   // popstate hasil history.back() internal
+    if (pushedCount > 0){
+      pushedCount--;
+      closingFromPop = true;
+      closeTopmostLayer();
+      closingFromPop = false;
+    }
   });
 
   // --- status jaringan ---
